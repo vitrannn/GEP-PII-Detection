@@ -12,13 +12,13 @@ pip install -r requirements.txt
 ## Steps for training and evaluating the ChatBioGPT
 1. First train the biogpt with alpaca dataset by running
 ```bash
-python train.py --model_name_or_path "microsoft/biogpt" --data_path "./alpaca_data.json" --train_mode "without_pii" --output_dir "checkpoint_alp" --num_train_epochs 20 --per_device_train_batch_size 16 --learning_rate 1e-4 --weight_decay 0.1 --warmup_ratio 0.03
+python train.py --model_name_or_path "microsoft/biogpt" --data_path "./alpaca_data.json" --train_mode "without_pii" --output_dir "checkpoint_alp" --num_train_epochs 3 --per_device_train_batch_size 16 --learning_rate 2e-5 --weight_decay 0. --warmup_ratio 0.03
 ```
 `--model_name_or_path` refers to the directory of the loading model, `--data_path` is the path of the dataset, `--train_mode` defines if we want to train the ChatBioGPT for chatting or conducting PII extraction, `--output_dir` is the directory to save the trained weights. The remaining parameters are hyperparameters for training the model.
 
 2. Then keep training with HealthCareMagic-100k
 ```bash
-python train.py --model_name_or_path "checkpoint_alp" --data_path "./HealthCareMagic-100k.json" --train_mode "without_pii" --output_dir "checkpoint_hcm" --num_train_epochs 20 --per_device_train_batch_size 16 --learning_rate 1e-4 --weight_decay 0.1 --warmup_ratio 0.03
+python train.py --model_name_or_path "checkpoint_alp" --data_path "./HealthCareMagic-100k.json" --train_mode "without_pii" --output_dir "checkpoint_hcm" --num_train_epochs 3 --per_device_train_batch_size 16 --learning_rate 2e-5 --weight_decay 0. --warmup_ratio 0.03
 ```
 
 Then we have the weights of the ChatBioGPT in `checkpoint_hcm`
@@ -41,7 +41,7 @@ python chat.py --model_path "checkpoint_hcm"
 ## Steps for inserting the template-based PII and attack with either template-based query or GEP
 1. We insert the PII into HealthCareMagic-100k, and keep training based on the model which has already been finetuned on alpaca. For template-based insertion, using the following command:
 ```bash
-python train.py --model_name_or_path "checkpoint_alp" --train_mode "with_pii" --insert_mode "template-based" --output_dir "checkpoint_t" --num_train_epochs 20 --per_device_train_batch_size 16 --learning_rate 1e-4 --weight_decay 0.1 --warmup_ratio 0.03
+python train.py --model_name_or_path "checkpoint_alp" --train_mode "with_pii" --insert_mode "template-based" --output_dir "checkpoint_t" --num_train_epochs 3 --per_device_train_batch_size 16 --learning_rate 2e-5 --weight_decay 0. --warmup_ratio 0.03
 ```
 The `--model_name_or_path` is the path of loading model. The `--insert_model` defines the template-based insertion or free-style insertion. The `--output_dir` refers the output directory of the model weights. The weights of the model with template-based PII insertion will be stored in `./checkpoint_t`.
 2. For template-based query attack targeting template-based insertion, run the following command:
@@ -69,7 +69,7 @@ It also contains more details about the entries which are successfully attacked,
 ## Steps for inserting the free-style PII and attack with GEP
 1. For free-style insertion, using the following command:
 ```bash
-python train.py --model_name_or_path "checkpoint_alp" --train_mode "with_pii" --insert_mode "free-style" --output_dir "checkpoint_f" --num_train_epochs 20 --per_device_train_batch_size 16 --learning_rate 1e-4 --weight_decay 0.1 --warmup_ratio 0.03
+python train.py --model_name_or_path "checkpoint_alp" --train_mode "with_pii" --insert_mode "free-style" --output_dir "checkpoint_f" --num_train_epochs 3 --per_device_train_batch_size 16 --learning_rate 2e-5 --weight_decay 0. --warmup_ratio 0.03
 ```
 The weights of the model with pii insertion will be stored in `./checkpoint_f`
 
