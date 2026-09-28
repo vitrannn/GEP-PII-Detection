@@ -22,11 +22,12 @@ import logging
 import transformers
 from torch.utils.data import Dataset
 from transformers import Trainer
-from transformers import BioGptTokenizer, BioGptForCausalLM
+from transformers import BioGptTokenizer, BioGptForCausalLM, AutoTokenizer, AutoModelForCausalLM
 import utils
-
+import pdb
 
 IGNORE_INDEX = -100
+DEFAULT_PAD_TOKEN = "<pad>"
 PROMPT_DICT = {
     "prompt_input": (
         "Below is an instruction that describes a task, paired with an input that provides further context. "
@@ -50,7 +51,10 @@ PROMPT_DICT = {
 
 @dataclass
 class ModelArguments:
-    model_name_or_path: str = field(default="microsoft/biogpt")
+    model_name_or_path: str = field(default="Qwen/Qwen3-0.6B", metadata={
+        "help": "Choose from facebook/opt-350m or microsoft/biogpt if you just start finetuning. If you are in the"
+                " middleway, then this directory should be the one that stored the weights of previous training."})
+    modelwf: str = field(default='qwen3')
 
 
 @dataclass
@@ -72,7 +76,7 @@ class TrainingArguments(transformers.TrainingArguments):
     save_strategy: str = field(default='epoch')
     save_total_limit: int = field(default=1)
     output_dir: str = field(default='checkpoint')
-    num_train_epochs: int = field(default=20)
+    num_train_epochs: int = field(default=3)
     per_device_train_batch_size: int = field(default=16)
     per_device_eval_batch_size: int = field(default=4)
     gradient_accumulation_steps: int = field(default=8)
@@ -95,9 +99,9 @@ def safe_save_model_for_hf_trainer(trainer: transformers.Trainer, output_dir: st
 
 
 def smart_tokenizer_and_embedding_resize(
-    special_tokens_dict: Dict,
-    tokenizer: transformers.PreTrainedTokenizer,
-    model: transformers.PreTrainedModel,
+        special_tokens_dict: Dict,
+        tokenizer: transformers.PreTrainedTokenizer,
+        model: transformers.PreTrainedModel,
 ):
     """Resize tokenizer and embedding.
 
@@ -142,9 +146,9 @@ def _tokenize_fn(strings: Sequence[str], tokenizer: transformers.PreTrainedToken
 
 
 def preprocess(
-    sources: Sequence[str],
-    targets: Sequence[str],
-    tokenizer: transformers.PreTrainedTokenizer,
+        sources: Sequence[str],
+        targets: Sequence[str],
+        tokenizer: transformers.PreTrainedTokenizer,
 ) -> Dict:
     """Preprocess the data by tokenizing."""
     examples = [s + t for s, t in zip(sources, targets)]
@@ -191,7 +195,8 @@ class SupervisedDatasetPII(Dataset):
         logging.warning("Loading data...")
         logging.warning("Formatting inputs...")
         prompt_input, prompt_no_input, prompt_input_p, template = (
-            PROMPT_DICT["prompt_input"], PROMPT_DICT["prompt_no_input"], PROMPT_DICT["prompt_input_p"], PROMPT_DICT["template"])
+            PROMPT_DICT["prompt_input"], PROMPT_DICT["prompt_no_input"], PROMPT_DICT["prompt_input_p"],
+            PROMPT_DICT["template"])
 
         if insert_mode == 'free-style':
             list_data_dict_n = utils.jload('./datapreprocess/HealthCareMagic-nonsensitive-ul.json')
@@ -308,16 +313,46 @@ def train():
     parser = transformers.HfArgumentParser((ModelArguments, DataArguments, TrainingArguments))
     model_args, data_args, training_args = parser.parse_args_into_dataclasses()
 
-    model = BioGptForCausalLM.from_pretrained(
-        model_args.model_name_or_path,
-        cache_dir=training_args.cache_dir,
-    )
+    if model_args.modelwf == 'biogpt':
+        model = BioGptForCausalLM.from_pretrained(
+            model_args.model_name_or_path,
+            cache_dir=training_args.cache_dir,
+        )
+        tokenizer = BioGptTokenizer.from_pretrained(model_args.model_name_or_path,
+                                                    model_max_length=training_args.model_max_length,
+                                                    padding_side="right",
+                                                    use_fast=False,
+                                                    )
+    elif model_args.modelwf == 'opt':
+        model = AutoModelForCausalLM.from_pretrained(
+            model_args.model_name_or_path,
+            cache_dir=training_args.cache_dir,
+        )
+        tokenizer = AutoTokenizer.from_pretrained(model_args.model_name_or_path,
+                                                  model_max_length=training_args.model_max_length,
+                                                  padding_side="right",
+                                                  use_fast=False,
+                                                  )
+    elif model_args.modelwf == 'qwen3':
+        model = AutoModelForCausalLM.from_pretrained(
+            model_args.model_name_or_path,
+            cache_dir=training_args.cache_dir,
+        )
+        tokenizer = AutoTokenizer.from_pretrained(model_args.model_name_or_path,
+                                                  model_max_length=training_args.model_max_length,
+                                                  padding_side="right",
+                                                  use_fast=False,
+                                                  )
 
-    tokenizer = BioGptTokenizer.from_pretrained(model_args.model_name_or_path,
-                                                model_max_length=training_args.model_max_length,
-                                                padding_side="right",
-                                                use_fast=False,
-                                                )
+    else:
+        raise ValueError("Please specify from biogpt or opt.")
+
+    if tokenizer.pad_token is None:
+        smart_tokenizer_and_embedding_resize(
+            special_tokens_dict=dict(pad_token=DEFAULT_PAD_TOKEN),
+            tokenizer=tokenizer,
+            model=model,
+        )
 
     data_module = make_supervised_data_module(tokenizer=tokenizer, data_args=data_args)
     trainer = Trainer(model=model, tokenizer=tokenizer, args=training_args, **data_module)
@@ -326,10 +361,10 @@ def train():
     end_time = time.time()
     trainer.save_state()
     safe_save_model_for_hf_trainer(trainer=trainer, output_dir=training_args.output_dir)
-    
+
     elapsed_time = end_time - start_time
     print(f"Elapsed time: {elapsed_time:.2f} seconds")
-    print(f"Elapsed time: {elapsed_time/60:.2f} minutes")
+    print(f"Elapsed time: {elapsed_time / 60:.2f} minutes")
 
 
 if __name__ == "__main__":
