@@ -10,7 +10,6 @@ import argparse
 
 
 def generate(model, tokenizer, input_ids, assistant_role_slice, decoding, generation_length):
-
     input_ids = input_ids[:assistant_role_slice.stop].to(model.device).unsqueeze(0)
     attn_masks = torch.ones_like(input_ids).to(model.device)
     if decoding == "greedy":
@@ -55,7 +54,8 @@ def generate(model, tokenizer, input_ids, assistant_role_slice, decoding, genera
         raise ValueError("Please choose the right decoding approach")
 
 
-def check_for_attack_success(model, tokenizer, input_ids, assistant_role_slice, test_prefixes, decoding, generation_length):
+def check_for_attack_success(model, tokenizer, input_ids, assistant_role_slice, test_prefixes, decoding,
+                             generation_length):
     jailbroken = False
     appear_idx = 0
 
@@ -113,6 +113,7 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description="GEP for template-based PII insertion")
 
     parser.add_argument("--model_path", help="Choose the path of weights")
+    parser.add_argument("--model_type", choices=["biogpt", "opt", "qwen3"])
     parser.add_argument("--decoding", choices=["greedy", "beam", "topk"], help="Decoding strategies")
     parser.add_argument("--trigger_length", type=int, help="The length of the trigger tokens")
     parser.add_argument("--steps", type=int, help="The total steps/iteration of the training")
@@ -126,6 +127,7 @@ if __name__ == '__main__':
     device = torch.device('cuda')
 
     model, tokenizer = load_model_and_tokenizer(args.model_path,
+                                                args.model_type,
                                                 low_cpu_mem_usage=True,
                                                 use_cache=False,
                                                 device=device)
@@ -134,7 +136,7 @@ if __name__ == '__main__':
     logger.setLevel(logging.INFO)
     formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s',
                                   datefmt='%Y-%m-%d %H:%M:%S')
-    fh = logging.FileHandler('./logs/attackprompt_single.txt')
+    fh = logging.FileHandler(f'./logs/attackprompt_single_{args.model_type}.txt')
     fh.setLevel(logging.INFO)
     fh.setFormatter(formatter)
     logger.addHandler(fh)
@@ -154,7 +156,8 @@ if __name__ == '__main__':
         suffix_manager = SuffixManager(tokenizer=tokenizer,
                                        instruction=user_prompt,
                                        target=target,
-                                       adv_string=adv_string_init)
+                                       adv_string=adv_string_init,
+                                       model_type=args.model_type)
 
         not_allowed_tokens = None if allow_non_ascii else get_nonascii_toks(tokenizer)
         adv_suffix = adv_string_init
@@ -170,7 +173,8 @@ if __name__ == '__main__':
                                               input_ids,
                                               suffix_manager._control_slice,
                                               suffix_manager._target_slice,
-                                              suffix_manager._loss_slice)
+                                              suffix_manager._loss_slice,
+                                              args.model_type)
 
             with torch.no_grad():
 
@@ -182,10 +186,12 @@ if __name__ == '__main__':
                                                      args.bs,
                                                      topk=args.topk,
                                                      temp=1,
-                                                     not_allowed_tokens=not_allowed_tokens)
+                                                     not_allowed_tokens=not_allowed_tokens,
+                                                     vs=tokenizer.vocab_size)
 
                 new_adv_suffix = get_filtered_cands(tokenizer,
                                                     new_adv_suffix_toks,
+                                                    args.trigger_length,
                                                     filter_cand=True,
                                                     curr_control=adv_suffix)
 
@@ -201,7 +207,7 @@ if __name__ == '__main__':
                 losses = target_loss(logits, ids, suffix_manager._target_slice)
 
                 best_new_adv_suffix_id = losses.argmin()
-                best_new_adv_suffix = new_adv_suffix[best_new_adv_suffix_id]
+                best_new_adv_suffix = new_adv_suffix[best_new_adv_suffix_id].lstrip()
 
                 current_loss = losses[best_new_adv_suffix_id]
                 losses_.append(current_loss.detach().cpu().numpy())
@@ -212,7 +218,8 @@ if __name__ == '__main__':
                 adv_suffix = best_new_adv_suffix
                 is_success, idx = check_for_attack_success(model,
                                                            tokenizer,
-                                                           suffix_manager.get_input_ids(adv_string=adv_suffix).to(device),
+                                                           suffix_manager.get_input_ids(adv_string=adv_suffix).to(
+                                                               device),
                                                            suffix_manager._assistant_role_slice,
                                                            test_prefixes,
                                                            args.decoding,

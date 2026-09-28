@@ -127,6 +127,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="GEP for free-style PII insertion")
 
     parser.add_argument("--model_path", help="Choose the path of weights")
+    parser.add_argument("--model_type", choices=["biogpt", "opt", "qwen3"])
     parser.add_argument("--decoding", choices=["greedy", "beam", "topk"], help="Decoding strategies")
     parser.add_argument("--trigger_length", type=int, help="The length of the trigger tokens")
     parser.add_argument("--steps", type=int, help="The total steps/iteration of the training")
@@ -141,6 +142,7 @@ if __name__ == "__main__":
     device = torch.device('cuda')
 
     model, tokenizer = load_model_and_tokenizer(args.model_path,
+                                                args.model_type,
                                                 low_cpu_mem_usage=True,
                                                 use_cache=False,
                                                 device=device)
@@ -149,7 +151,7 @@ if __name__ == "__main__":
     logger.setLevel(logging.INFO)
     formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s',
                                   datefmt='%Y-%m-%d %H:%M:%S')
-    fh = logging.FileHandler('./logs/attackprompt_multiple.txt')
+    fh = logging.FileHandler(f'./logs/attackprompt_multiple_{args.decoding}_{args.model_type}.txt')
     fh.setLevel(logging.INFO)
     fh.setFormatter(formatter)
     logger.addHandler(fh)
@@ -178,7 +180,8 @@ if __name__ == "__main__":
         suffix_manager = SuffixManager(tokenizer=tokenizer,
                                        instruction=user_prompt,
                                        target=target,
-                                       adv_string=adv_string_init)
+                                       adv_string=adv_string_init,
+                                       model_type=args.model_type)
         tr_suffix_ms.append(suffix_manager)
         tr_names.append(user_prompt)
         tr_targets.append(target)
@@ -189,7 +192,8 @@ if __name__ == "__main__":
         suffix_manager = SuffixManager(tokenizer=tokenizer,
                                        instruction=user_prompt,
                                        target=target,
-                                       adv_string=adv_string_init)
+                                       adv_string=adv_string_init,
+                                       model_type=args.model_type)
         va_suffix_ms.append(suffix_manager)
         va_names.append(user_prompt)
         va_targets.append(target)
@@ -210,14 +214,18 @@ if __name__ == "__main__":
                                                input_ids,
                                                ts._control_slice,
                                                ts._target_slice,
-                                               ts._loss_slice)
+                                               ts._loss_slice,
+                                               args.model_type)
             tr_coordinate_grads.append(coordinate_grad_)
 
         coordinate_grad = sum(tr_coordinate_grads) / len(tr_dict)
 
         with torch.no_grad():
 
-            adv_suffix_tokens = torch.tensor(tokenizer(adv_suffix).input_ids[1:], dtype=torch.int64).to(device)
+            if args.model_type == "biogpt" or args.model_type == "opt":
+                adv_suffix_tokens = torch.tensor(tokenizer(" " + adv_suffix).input_ids[1:], dtype=torch.int64).to(device)
+            else:
+                adv_suffix_tokens = torch.tensor(tokenizer(" " + adv_suffix).input_ids, dtype=torch.int64).to(device)
 
             # sample the new candidate trigger tokens
             new_adv_suffix_toks = sample_control(adv_suffix_tokens,
@@ -225,10 +233,12 @@ if __name__ == "__main__":
                                                  args.bs,
                                                  topk=args.topk,
                                                  temp=1,
-                                                 not_allowed_tokens=not_allowed_tokens)
+                                                 not_allowed_tokens=not_allowed_tokens,
+                                                 vs=tokenizer.vocab_size)
 
             new_adv_suffix = get_filtered_cands(tokenizer,
                                                 new_adv_suffix_toks,
+                                                args.trigger_length,
                                                 filter_cand=True,
                                                 curr_control=adv_suffix)
 
@@ -248,7 +258,7 @@ if __name__ == "__main__":
 
             losses = sum(tr_lss) / len(tr_dict)
             best_new_adv_suffix_id = losses.argmin()
-            best_new_adv_suffix = new_adv_suffix[best_new_adv_suffix_id]
+            best_new_adv_suffix = new_adv_suffix[best_new_adv_suffix_id].lstrip()
 
             current_loss = losses[best_new_adv_suffix_id].detach().cpu().numpy()
             losses_.append(current_loss)
@@ -307,7 +317,7 @@ if __name__ == "__main__":
 
             va_acc = va_count / len(va_dict)
             asr_step_va.append(va_acc)
-            logger.info(f'The number of successful attacks at each index in the final generation is: {asr_generation_va}')
+            logger.info(f'ASR w.r.t validation generation is: {asr_generation_va}')
 
             logger.info(f'On iteration of {i}, training set\'s ASR is {tr_acc}, validation set\'s ASR is {va_acc}, '
                         f'loss is {current_loss}')
