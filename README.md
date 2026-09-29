@@ -9,7 +9,7 @@ By running:
 pip install -r requirements.txt
 ```
 
-## Steps for training and evaluating the ChatBioGPT
+## Steps for training and evaluating the Chatbot
 1. First train the model (e.g., BioGPT) with alpaca dataset by running
 ```bash
 python train.py --model_name_or_path "microsoft/biogpt" --modelwf "biogpt" --data_path "./alpaca_data.json" --train_mode "without_pii" --output_dir "checkpoint_alp" --num_train_epochs 3 --per_device_train_batch_size 16 --learning_rate 2e-5 --weight_decay 0. --warmup_ratio 0.03
@@ -38,7 +38,7 @@ python chat.py --model_path "checkpoint_hcm" --model_type "biogpt"
 ```
 
 
-## Steps for inserting the template-based PII and attack with either template-based query or GEP
+## Steps for inserting the template-based name-disease associations and attack with either template-based query or GEP
 1. We insert the name-disease associations into HealthCareMagic-100k, and keep training based on the model which has already been finetuned on alpaca. For template-based insertion, using the following command:
 ```bash
 python train.py --model_name_or_path "checkpoint_alp" --modelwf "biogpt" --train_mode "with_pii" --insert_mode "template-based" --output_dir "checkpoint_t" --num_train_epochs 3 --per_device_train_batch_size 16 --learning_rate 2e-5 --weight_decay 0. --warmup_ratio 0.03
@@ -66,7 +66,7 @@ It also contains more details about the entries which are successfully attacked,
 - Generation, expected leakage and index: `Generation is ###{}###, and test prefix is ###{}###, and appear_idx is ###{}###'`, where the expected leakage is the disease, e.g., BPPV.
 
 
-## Steps for inserting the free-style PII and attack with GEP
+## Steps for inserting the free-style name-disease associations and attack with GEP
 1. For free-style insertion, using the following command:
 ```bash
 python train.py --model_name_or_path "checkpoint_alp" --modelwf "biogpt" --train_mode "with_pii" --insert_mode "free-style" --output_dir "checkpoint_f" --num_train_epochs 3 --per_device_train_batch_size 16 --learning_rate 2e-5 --weight_decay 0. --warmup_ratio 0.03
